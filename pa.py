@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 # This script outputs a test frequency through the default audio device
 # (either speakers or headphone), and records audio from the default input
 # device (either microphone or line-in). It automatically adjusts recording
@@ -19,14 +18,23 @@
 # for ambient noise; setting it to 1500 Hz or above should work. The
 # default test frequency is chosen with this in mind.
 
-
 from __future__ import division, print_function
 import argparse
+import sys
 
+#How many frequency bands to use
 BINS = 256
+FFT_INTERVAL = 100000000 #In nanoseconds, so this is every 1/10th second
+#Sampling frequency. The effective maximum frequency we can analyze is
+#half of this (see Nyquist's theorem)
 SAMPLING_FREQUENCY = 44100
+#Try to keep the peak recording level between these two (in dB attenuation,
+#0 means no attenuation (and horrible clipping).
 REC_LEVEL_RANGE = (-2.0, -3.5)
-
+#For our test signal to be considered present, it has to be this much higher
+#than the average of the rest of the frequencies (to ensure we have a nice,
+#clear peak). This is in dB.
+MAGNITUDE_THRESHOLD = 5.0
 #The default test frequency should be in the middle of the frequency band
 #that delimits the first and second thirds of the frequency range.
 #That gives a not-so-ear-piercing tone and should ensure there's no
@@ -41,18 +49,23 @@ then records on the default input device. Analyzes the
 recorded signal to test for presence of the played frequency,
 if present it exits with success.
 """
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description=description)
 parser.add_argument("-t", "--time",
         dest='test_duration',
         action='store',
         default=30,
         type=int,
-        help="""Maximum test duration, default %(default)s seconds.  """)
+        help="""Maximum test duration, default %(default)s seconds.
+                Test will exit sooner if it determines it has enough data.""")
 parser.add_argument("-a", "--audio",
         action='store',
         default=None,
         type=str,
-        help="File to save recorded audio")
+        help="File to save recorded audio in .wav format")
+parser.add_argument("-v", "--verbose",
+        action='store_true',
+        default=False,
+        help="Be verbose")
 parser.add_argument("-f", "--frequency",
         action='store',
         default=DEFAULT_TEST_FREQUENCY,
@@ -61,16 +74,23 @@ parser.add_argument("-f", "--frequency",
 parser.add_argument("-u", "--spectrum",
         action='store',
         type=str,
-        help="File to save spectrum information for plotting")
+        help="""File to save spectrum information for plotting
+                (one frequency/magnitude pair per line)""")
 args = parser.parse_args()
 
 #import rest of the modules; specifically, gst, because otherwise
 #it interferes with argument processing.
-import gobject
-import gst
-import subprocess
-import sys
-from glib import GError
+
+try:
+    import gobject
+    import gst
+    import subprocess
+    from glib import GError
+except ImportError:
+    print("Can't import module: %s. it may not be available for this"
+          "version of Python, which is: " % sys.exc_info()[1], file=sys.stderr)
+    print((sys.version), file=sys.stderr)
+    sys.exit(127)
 
 
 class AudioObject:
@@ -96,18 +116,22 @@ class AudioObject:
 
 class Player(AudioObject):
 
-    def __init__(self, frequency=8000):
-        self.default_volume = 70
+    def __init__(self, frequency=DEFAULT_TEST_FREQUENCY, verbose=False):
+        self.verbose = verbose
+        self.default_volume = 40
         self.pipeline = gst.parse_launch('''audiotestsrc wave=sine freq=%s !
         audioconvert ! audioresample ! autoaudiosink''' % frequency)
         self.volumecontrol(self.default_volume)
+        if self.verbose: print("Playing test frequency of %s Hz" %
+                               frequency) 
 
     def volumecontrol(self, volume):
         self.pactl_command('set-sink-volume', 0, volume)
 
 
 class Recorder(AudioObject):
-    def __init__(self, loop=None):
+    def __init__(self, loop=None, verbose=False):
+        self.verbose = verbose
         self.default_volume = 10
         self.raw_buffers = []
         self.fft_magnitudes = [0.0] * BINS
@@ -120,20 +144,25 @@ class Recorder(AudioObject):
         ! queue
         ! level message=true name=recorderlevel
         ! audioconvert
-        ! audio/x-raw-int,channels=1, rate=44100
+        ! audio/x-raw-int,channels=1, rate=%(rate)s
         ! audioresample
-        ! spectrum interval=100000000 bands = %(bands)s
+        ! spectrum interval=%(fft_interval)s bands = %(bands)s
         ! wavenc
         ! appsink name=recordersink emit-signals=true''' %
-        {'bands': BINS})
+        {'bands': BINS,
+         'rate': SAMPLING_FREQUENCY,
+         'fft_interval': FFT_INTERVAL})
         self.sink = self.pipeline.get_by_name('recordersink')
         self.sink.connect('new-buffer', self.nextbuffer)
-        self.recordersource = self.pipeline.get_by_name('recordersrc')
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
         self.bus.connect('message', self.bus_message_handler)
         self.volume = 0
         self.volumecontrol(self.volume)
+        self.actions={'level':"Adjusting recording level",
+                      'sample':"Recording audio samples"}
+        self.print_update = True
+        self.current_action= None
 
     def write_audio_to_file(self, file):
         try:
@@ -153,11 +182,14 @@ class Recorder(AudioObject):
     def bus_message_handler(self, bus, message):
         if message.type == gst.MESSAGE_ELEMENT:
             if message.structure.get_name() == 'spectrum' and self.in_range:
+                if self.current_action != 'sample':
+                    self.current_action = 'sample'
+                    self.print_update = True
                 #We only need magnitude, phase is not needed
                 #this is measured in dB (0 = maximum)
-                #We need to divide the sampling frequency by number of
-                #bins just as with the manual FFT
-                self.fft_magnitudes = [i + j for i, j in zip(
+                self.fft_magnitudes = [((i*self.fft_samples_taken) + j) / 
+                                       (self.fft_samples_taken + 1) 
+                                       for i, j in zip(
                                        self.fft_magnitudes,
                                        message.structure['magnitude'])]
                 self.fft_samples_taken += 1
@@ -174,76 +206,100 @@ class Recorder(AudioObject):
                 else:
                         self.in_range = False
                 if not self.in_range:
+                    if self.current_action != 'level':
+                        self.current_action = 'level'
+                        self.print_update = True
                     if peak_value > REC_LEVEL_RANGE[0]:
                         self.volume -= 1
                     if peak_value < REC_LEVEL_RANGE[1]:
                         self.volume += 1
-                    #print("adjusting volume to %d" % self.volume)
                     self.volumecontrol(self.volume)
+        if self.verbose and self.print_update and self.current_action:
+            print(self.actions[self.current_action])
+            self.print_update = False
 
     def volumecontrol(self, volume):
         self.pactl_command('set-source-volume', 1, volume)
-        
 
 
-gobject.threads_init()
-loop = gobject.MainLoop()
+def main():
+    gobject.threads_init()
+    loop = gobject.MainLoop()
 
-try:
-    p = Player(frequency=args.frequency)
-    r = Recorder(loop=loop)
-    gobject.timeout_add_seconds(0, lambda: p.start())
-    gobject.timeout_add_seconds(0, lambda: r.start())
-    gobject.timeout_add_seconds(args.test_duration, lambda: p.stop())
-    gobject.timeout_add_seconds(args.test_duration, lambda: r.stop())
-    gobject.timeout_add_seconds(args.test_duration, lambda: loop.quit())
-    loop.run()
-except OSError:
-    print("Error running a command", file=sys.stderr)
-    sys.exit(2)
-except GError:
-    print("Error processing gstreamer pipeline", file=sys.stderr)
-    sys.exit(3)
-
-
-if args.audio:
-    if not r.write_audio_to_file(args.audio):
-        sys.stderr.write("Couldn't save recorded audio")
-
-if args.spectrum:
     try:
-        with open(args.spectrum, "wb") as f:
-            for i in range(len(r.fft_frequency_bands)):
-                print(r.fft_frequency_bands[i], r.fft_magnitudes[i], file=f)
-    except (TypeError, IOError):
-        sys.stderr.write("Couldn't save spectrum data for plotting")
+        if args.verbose: print("Creating sound player and recorder objects")
+        p = Player(frequency=args.frequency, verbose=args.verbose)
+        r = Recorder(loop=loop, verbose=args.verbose)
+        gobject.timeout_add_seconds(0, lambda: p.start())
+        gobject.timeout_add_seconds(0, lambda: r.start())
+        gobject.timeout_add_seconds(args.test_duration, lambda: p.stop())
+        gobject.timeout_add_seconds(args.test_duration, lambda: r.stop())
+        gobject.timeout_add_seconds(args.test_duration, lambda: loop.quit())
+        if args.verbose: print("playing/recording...")
+        loop.run()
+    except OSError:
+        print("Error running a command", file=sys.stderr)
+        return(2)
+    except GError:
+        print("Error processing gstreamer pipeline", file=sys.stderr)
+        return(3)
 
-#We want to know if the bin with the highest magnitude (second element)
-#contains the test frequency.
+    if args.audio:
+        if args.verbose:
+            print("Saving recorded audio as %s" % args.audio)
+        if not r.write_audio_to_file(args.audio):
+            print("Couldn't save recorded audio", file=sys.stderr)
 
-for i in range(len(r.fft_frequency_bands)):
-    if r.fft_frequency_bands[i] >= args.frequency:
-        test_bin_index = i - 1
-        break
+    if args.spectrum:
+        if args.verbose:
+            print("Saving spectrum data for plotting as %s" % args.spectrum)
+        try:
+            with open(args.spectrum, "wb") as f:
+                for i in range(len(r.fft_frequency_bands)):
+                    print(r.fft_frequency_bands[i], r.fft_magnitudes[i], file=f)
+        except (TypeError, IOError):
+            print("Couldn't save spectrum data for plotting", file=sys.stderr)
 
-if not test_bin_index:
-    print("Test frequency doesn't match any of the spectrum bins.")
-    sys.exit(127)
+    #Let's analyze the signal.
 
-#TODO:We should ignore the first band (which will contain mostly the DC
-#component and low-frequency noise) *only* if it doesn't contain the test
-#frequency.
-max_bin = max(r.fft_magnitudes[1:])
-max_bin_index = r.fft_magnitudes.index(max_bin)
-print("Frequency bin with the highest magnitude is %s-%s" %
-         (r.fft_frequency_bands[max_bin_index],
-          r.fft_frequency_bands[max_bin_index + 1]))
-print("Frequency bin containing the test frequency of %d Hz is %s-%s" %
-        (args.frequency, r.fft_frequency_bands[test_bin_index],
-         r.fft_frequency_bands[test_bin_index + 1]))
-if max_bin_index == test_bin_index:
-    print("Success!")
-    sys.exit(0)
-else:
-    print("Failure :(")
-    sys.exit(1)
+    for i in range(len(r.fft_frequency_bands)):
+        if r.fft_frequency_bands[i] >= args.frequency:
+            test_bin_index = i - 1
+            break
+
+    if not test_bin_index:
+        print("Test frequency doesn't match any of the spectrum bins.",
+                file=sys.stderr)
+        return(4)
+
+    average_magnitude = sum(r.fft_magnitudes) / len(r.fft_magnitudes)
+    test_result = False
+    microphone_broken = True
+
+    for i in range(len(r.fft_magnitudes)):
+        if r.fft_magnitudes[i] > average_magnitude:
+            microphone_broken = False
+        if r.fft_magnitudes[i] > average_magnitude + MAGNITUDE_THRESHOLD and \
+           i == test_bin_index:
+               if args.verbose:
+                   print("Magnitude of %s in band %s is higher than "
+                         "average (%s), test frequency of %s "
+                         "contained in this band!" % 
+                         (r.fft_magnitudes[i],
+                          r.fft_frequency_bands[i],
+                          average_magnitude,
+                          args.frequency))
+               test_result = True
+
+    if microphone_broken :
+        print("Microphone seems broken, didn't even record ambient noise")
+
+    if test_result and not microphone_broken:
+        print("Test passed")
+        return(0)
+    else:
+        print("Test failed")
+        return(1)
+
+if __name__ == "__main__":
+    sys.exit(main())
