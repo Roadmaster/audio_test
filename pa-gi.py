@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-#NOTE NOTE this requires gstreamer-1.0 to work correctly, 0.10 does not
-#work
 
 # This script outputs a test frequency through the default audio device
 # (either speakers or headphone), and records audio from the default input
@@ -114,6 +112,7 @@ class Recorder(AudioObject):
                 for i in range(BINS)]
         self.fft_samples_taken = 0
         self.loop = loop
+        self.in_range = False
 
         self.pipeline = Gst.parse_launch('''autoaudiosrc name=recordersrc
         ! queue
@@ -126,7 +125,7 @@ class Recorder(AudioObject):
         ! appsink name=recordersink emit-signals=true''' %
         {'bands': BINS})
         self.sink = self.pipeline.get_by_name('recordersink')
-#        self.sink.connect('new-buffer', self.nextbuffer)
+        self.sink.connect('new-sample', self.nextbuffer)
         self.recordersource = self.pipeline.get_by_name('recordersrc')
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
@@ -143,8 +142,11 @@ class Recorder(AudioObject):
             return False
 
     def nextbuffer(self, sink):
-        b = sink.emit('pull-buffer')
-        self.raw_buffers.append(b.data)
+        b = sink.emit('pull-sample')
+	#FIXME: THis is not working with pygi, I don't know
+	#how to get the buffer's data to append to self.raw_buffers :(
+        print(b.get_buffer())
+        self.raw_buffers.append(b.get_buffer())
         #each buffer starts at b.timestamp and has a length of
         #b.duration, in nanoseconds. Each sample then covers a time
         #period of b.duration / len(samples).
@@ -164,7 +166,7 @@ class Recorder(AudioObject):
                     self.loop.quit()
 
             if message.get_structure().get_name() == 'level':
-                peak_value = message.get_structure()['peak'][0]
+                peak_value = message.get_structure().get_fraction('peak')[0]
                 # A simple hysteresis mechanism to keep peak signal levels
                 # in a reasonable range, so that we neither clip nor
                 # have a too-low signal.
