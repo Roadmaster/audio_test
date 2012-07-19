@@ -20,6 +20,7 @@
 
 from __future__ import division, print_function
 import argparse
+import re
 import sys
 
 #How many frequency bands to use
@@ -30,7 +31,7 @@ FFT_INTERVAL = 100000000 #In nanoseconds, so this is every 1/10th second
 SAMPLING_FREQUENCY = 44100
 #Try to keep the peak recording level between these two (in dB attenuation,
 #0 means no attenuation (and horrible clipping).
-REC_LEVEL_RANGE = (-2.0, -3.5)
+REC_LEVEL_RANGE = (-2.0, -10)
 #For our test signal to be considered present, it has to be this much higher
 #than the average of the rest of the frequencies (to ensure we have a nice,
 #clear peak). This is in dB.
@@ -101,6 +102,22 @@ class AudioObject:
         self.pipeline.set_state(gst.STATE_NULL)
         self.volumecontrol(self.default_volume)
 
+    def get_pactl_id_for_default(self, type):
+        if not type in ['source', 'sink']:
+            return None
+        type += 's'
+        element_list = subprocess.check_output(['pactl',
+                                                'list',
+                                                type,
+                                                'short'], 
+                                                universal_newlines = True)
+        valid_elements=[(int(i.split()[0]), i.split()[1]) \
+                        for i in element_list.splitlines() \
+                        if not re.match('.*monitor.*', i)]
+        if not valid_elements:
+            return None
+        return valid_elements[0]
+
     def pactl_command(self, command, identifier, volume):
         if not command in ['set-sink-volume', 'set-source-volume']:
             return
@@ -121,12 +138,21 @@ class Player(AudioObject):
         self.default_volume = 40
         self.pipeline = gst.parse_launch('''audiotestsrc wave=sine freq=%s !
         audioconvert ! audioresample ! autoaudiosink''' % frequency)
+        self.sink_identification = self.get_pactl_id_for_default('sink')
         self.volumecontrol(self.default_volume)
-        if self.verbose: print("Playing test frequency of %s Hz" %
-                               frequency) 
+        if self.verbose: 
+            print("Playing test frequency of %s Hz" % frequency)
+            if self.sink_identification:
+                print("Using %s to control playback volume" % 
+                      self.sink_identification[1])
+            else:
+                print("I couldn't get a reasonable sink identifier")
+
 
     def volumecontrol(self, volume):
-        self.pactl_command('set-sink-volume', 0, volume)
+        self.pactl_command('set-sink-volume', 
+                            self.sink_identification[0], 
+                            volume)
 
 
 class Recorder(AudioObject):
@@ -157,6 +183,13 @@ class Recorder(AudioObject):
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
         self.bus.connect('message', self.bus_message_handler)
+        self.source_identification = self.get_pactl_id_for_default('source')
+        if self.verbose: 
+            if self.source_identification:
+                print("Using %s to control recording level" % 
+                      self.source_identification[1])
+            else:
+                print("I couldn't get a reasonable source identifier")
         self.volume = 0
         self.volumecontrol(self.volume)
         self.actions={'level':"Adjusting recording level",
@@ -219,7 +252,9 @@ class Recorder(AudioObject):
             self.print_update = False
 
     def volumecontrol(self, volume):
-        self.pactl_command('set-source-volume', 1, volume)
+        self.pactl_command('set-source-volume', 
+                           self.source_identification[0], 
+                           volume)
 
 
 def main():
