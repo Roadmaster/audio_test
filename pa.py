@@ -24,11 +24,11 @@ import re
 import sys
 
 #How many frequency bands to use
-BINS = 256
+BINS = 256 
 FFT_INTERVAL = 100000000 #In nanoseconds, so this is every 1/10th second
 #Sampling frequency. The effective maximum frequency we can analyze is
 #half of this (see Nyquist's theorem)
-SAMPLING_FREQUENCY = 44100
+SAMPLING_FREQUENCY = 44100 
 #Try to keep the peak recording level between these two (in dB attenuation,
 #0 means no attenuation (and horrible clipping).
 REC_LEVEL_RANGE = (-2.0, -10)
@@ -94,13 +94,37 @@ except ImportError:
     sys.exit(127)
 
 
-class AudioObject:
+class AudioObject(object):
+    def __init__(self):
+        self.pactl_identification = None
+
     def start(self):
         self.pipeline.set_state(gst.STATE_PLAYING)
 
     def stop(self):
         self.pipeline.set_state(gst.STATE_NULL)
         self.volumecontrol(self.default_volume)
+
+    def volumecontrol(self, volume):
+        if self.audio_type not in ['source', 'sink']:
+            return
+        if not self.pactl_identification:
+            self.pactl_identification = \
+                    self.get_pactl_id_for_default(self.audio_type)
+            if self.pactl_identification:
+                if self.verbose:
+                    print("Using %s to control %s volume" % 
+                          (self.pactl_identification[1], self.audio_type))
+            else:
+                print("I couldn't get a reasonable %s identifier. "
+                      "Test will probably fail." % self.audio_type)
+
+        if self.pactl_identification:
+            if not self.pactl_command('set-source-volume', 
+                           self.pactl_identification[0], 
+                           volume):
+                print("Unable to set %s volume to %s" %
+                        (self.audio_type, volume))
 
     def get_pactl_id_for_default(self, type):
         if not type in ['source', 'sink']:
@@ -113,50 +137,42 @@ class AudioObject:
                                                 universal_newlines = True)
         valid_elements=[(int(i.split()[0]), i.split()[1]) \
                         for i in element_list.splitlines() \
-                        if not re.match('.*monitor.*', i)]
+                        if not re.match('.*monitor.*', i) \
+                        and not re.match('.*auto_null.*', i)]
         if not valid_elements:
             return None
         return valid_elements[0]
 
     def pactl_command(self, command, identifier, volume):
         if not command in ['set-sink-volume', 'set-source-volume']:
-            return
+            return False
         if not volume in range(0, 100):
-            return
+            return False
         if not isinstance(identifier, int):
-            return
+            return False
         subprocess.check_call(['pactl',
                          command,
                          str(identifier),
                          str(volume) + '%'])
+        return True
 
 
 class Player(AudioObject):
 
     def __init__(self, frequency=DEFAULT_TEST_FREQUENCY, verbose=False):
+        super(Player, self).__init__()
         self.verbose = verbose
         self.default_volume = 40
         self.pipeline = gst.parse_launch('''audiotestsrc wave=sine freq=%s !
         audioconvert ! audioresample ! autoaudiosink''' % frequency)
-        self.sink_identification = self.get_pactl_id_for_default('sink')
+        self.audio_type = 'sink'
         self.volumecontrol(self.default_volume)
         if self.verbose: 
             print("Playing test frequency of %s Hz" % frequency)
-            if self.sink_identification:
-                print("Using %s to control playback volume" % 
-                      self.sink_identification[1])
-            else:
-                print("I couldn't get a reasonable sink identifier")
-
-
-    def volumecontrol(self, volume):
-        self.pactl_command('set-sink-volume', 
-                            self.sink_identification[0], 
-                            volume)
-
 
 class Recorder(AudioObject):
     def __init__(self, loop=None, verbose=False):
+        super(Recorder, self).__init__()
         self.verbose = verbose
         self.default_volume = 10
         self.raw_buffers = []
@@ -183,13 +199,7 @@ class Recorder(AudioObject):
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
         self.bus.connect('message', self.bus_message_handler)
-        self.source_identification = self.get_pactl_id_for_default('source')
-        if self.verbose: 
-            if self.source_identification:
-                print("Using %s to control recording level" % 
-                      self.source_identification[1])
-            else:
-                print("I couldn't get a reasonable source identifier")
+        self.audio_type = 'source'
         self.volume = 0
         self.volumecontrol(self.volume)
         self.actions={'level':"Adjusting recording level",
@@ -250,11 +260,6 @@ class Recorder(AudioObject):
         if self.verbose and self.print_update and self.current_action:
             print(self.actions[self.current_action])
             self.print_update = False
-
-    def volumecontrol(self, volume):
-        self.pactl_command('set-source-volume', 
-                           self.source_identification[0], 
-                           volume)
 
 
 def main():
