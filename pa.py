@@ -120,7 +120,7 @@ class AudioObject(object):
                       "Test will probably fail." % self.audio_type)
 
         if self.pactl_identification:
-            if not self.pactl_command('set-source-volume', 
+            if not self.pactl_command('set-%s-volume' % self.audio_type, 
                            self.pactl_identification[0], 
                            volume):
                 print("Unable to set %s volume to %s" %
@@ -162,7 +162,7 @@ class Player(AudioObject):
     def __init__(self, frequency=DEFAULT_TEST_FREQUENCY, verbose=False):
         super(Player, self).__init__()
         self.verbose = verbose
-        self.default_volume = 40
+        self.default_volume = 20 
         self.pipeline = gst.parse_launch('''audiotestsrc wave=sine freq=%s !
         audioconvert ! audioresample ! autoaudiosink''' % frequency)
         self.audio_type = 'sink'
@@ -241,6 +241,7 @@ class Recorder(AudioObject):
 
             if message.structure.get_name() == 'level':
                 peak_value = message.structure['peak'][0]
+                target_value = sum(REC_LEVEL_RANGE) / len(REC_LEVEL_RANGE)
                 # A simple hysteresis mechanism to keep peak signal levels
                 # in a reasonable range, so that we neither clip nor
                 # have a too-low signal.
@@ -330,6 +331,9 @@ def main():
                           average_magnitude,
                           args.frequency))
                test_result = True
+
+    if args.verbose:
+        subprocess.check_call(['pactl','list','sources'])
 
     if microphone_broken :
         print("Microphone seems broken, didn't even record ambient noise")
