@@ -29,9 +29,8 @@ FFT_INTERVAL = 100000000 #In nanoseconds, so this is every 1/10th second
 #Sampling frequency. The effective maximum frequency we can analyze is
 #half of this (see Nyquist's theorem)
 SAMPLING_FREQUENCY = 44100 
-#Try to keep the peak recording level between these two (in dB attenuation,
-#0 means no attenuation (and horrible clipping).
-REC_LEVEL_RANGE = (-2.0, -10)
+#Aim for this level of attenuation for the volume control in dB.
+REC_LEVEL = -2.0
 #For our test signal to be considered present, it has to be this much higher
 #than the average of the rest of the frequencies (to ensure we have a nice,
 #clear peak). This is in dB.
@@ -208,6 +207,8 @@ class Recorder(AudioObject):
         self.current_action= None
         self.previous_error = 0
         self.integral = 0
+        self.error = 20
+
 
     def write_audio_to_file(self, file):
         try:
@@ -226,7 +227,7 @@ class Recorder(AudioObject):
 
     def bus_message_handler(self, bus, message):
         if message.type == gst.MESSAGE_ELEMENT:
-            if message.structure.get_name() == 'spectrum' and self.in_range:
+            if message.structure.get_name() == 'spectrum' and self.error<0.5:
                 if self.current_action != 'sample':
                     self.current_action = 'sample'
                     self.print_update = True
@@ -243,39 +244,28 @@ class Recorder(AudioObject):
 
             if message.structure.get_name() == 'level':
                 peak_value = message.structure['peak'][0]
-                target_value = max(REC_LEVEL_RANGE) 
-                # A simple hysteresis mechanism to keep peak signal levels
-                # in a reasonable range, so that we neither clip nor
-                # have a too-low signal.
 
+                #This PID controller implementation does a nice job of
+                #keeping recording levels close to the desired level.
+                
                 dt = 0.1 #Sample duration?
-                Kp=0.1
-                Ki=0.1
-                Kd=0.2
+                Kp=1
+                Ki=0.01
+                Kd=0.02
 
-                error = target_value - peak_value
-                self.integral = self.integral + (error * dt)
-                derivative = (error * self.previous_error)/dt
-                output = (Kp * error) + (Ki * self.integral) + (Kd * derivative)
-                output=int(output)
-                self.previous_error = error
+                self.error = REC_LEVEL - peak_value
+                self.integral = self.integral + (self.error * dt)
+                derivative = (self.error - self.previous_error)/dt
+                output = int((Kp * self.error) + (Ki * self.integral) + (Kd * derivative))
+                self.previous_error = self.error
                 #Restrict change rate to 5
-                if output>10: output=10
-                if output<-10: output=-10
+                if output>5: output=5
+                if output<-5: output=-5
                 print("peak %s, target %s, error %s, change %s, vol %s" % 
-                        (peak_value, target_value, error, output, self.volume))
-                if REC_LEVEL_RANGE[1] <= peak_value <= REC_LEVEL_RANGE[0]:
-                        self.in_range = True
-                else:
-                        self.in_range = False
-                self.in_range = False 
-                if True or not self.in_range:
-                    if self.current_action != 'level':
-                        self.current_action = 'level'
-                        self.print_update = True
-                    self.volume+=output
-                    if self.volume > 80: self.volume = 80
-                    self.volumecontrol(self.volume)
+                        (peak_value, REC_LEVEL, self.error, output, self.volume))
+                self.volume+=output
+                if self.volume > 80: self.volume = 80
+                self.volumecontrol(self.volume)
         if self.verbose and self.print_update and self.current_action:
             print(self.actions[self.current_action])
             self.print_update = False
