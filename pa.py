@@ -194,7 +194,7 @@ class Player(AudioObject):
     def __init__(self, frequency=DEFAULT_TEST_FREQUENCY, verbose=False):
         super(Player, self).__init__()
         self.verbose = verbose
-        self.default_volume = 20 
+        self.default_volume = 70 
         self.pipeline = gst.parse_launch('''audiotestsrc wave=sine freq=%s !
         audioconvert ! audioresample ! autoaudiosink''' % frequency)
         self.audio_type = 'sink'
