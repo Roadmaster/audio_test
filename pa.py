@@ -93,37 +93,6 @@ except ImportError:
     print((sys.version), file=sys.stderr)
     sys.exit(127)
 
-class PIDController(object):
-    def __init__(self, Kp, Ki, Kd, setpoint=0):
-        self.setpoint = setpoint
-        self.Kp = Kp
-        self.Ki = Ki
-        self.Kd = Kd
-        self.integral = 0
-        self._previous_error = 0
-        self._change_limit = 0
-
-    def input_change(self, process_feedback, dt):
-        """ Calculates desired input value change.
-        
-            Based on process feedback and time inteval (dt)."""
-        error = self.setpoint - process_feedback
-        self.integral = self.integral + (error * dt)
-        derivative = (error - self._previous_error) / dt
-        self._previous_error = error
-        input_change = (self.Kp * error) + \
-               (self.Ki * self.integral) + \
-               (self.Kd * derivative)
-        if self._change_limit and abs(input_change) > abs(self._change_limit):
-            sign = input_change / abs(input_change)
-            input_change = sign * self._change_limit
-        return input_change
-
-    def set_change_limit(self, limit):
-        """Ensures that input value changes are lower than limit.
-        
-           Setting limit of zero disables this. """
-        self._change_limit = limit
 
 
 class AudioObject(object):

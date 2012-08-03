@@ -92,8 +92,11 @@ class TestVolumeControl(unittest.TestCase):
         vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
         self.assertTrue(vc.set(100))
+        self.assertEqual(vc.get(), 100)
         self.assertTrue(vc.set(15))
+        self.assertEqual(vc.get(), 15)
         self.assertTrue(vc.set(0))
+        self.assertEqual(vc.get(), 0)
 
     def test_set_volume_without_identifier(self):
         """ What happens if I don't explicitly call vc.get_identifier()"""
@@ -137,12 +140,73 @@ class TestSpectrumAnalyzer(unittest.TestCase):
                         [16, 17, 18, 19, 20]]
 
     def test_average_spectrum(self):
-        sa = pa.SpectrumAnalyzer()
+        sa = pa.SpectrumAnalyzer(points=5)
         for i in self.test_spectrums:
             sa.sample(i)
         self.assertEqual([(sum(e) / len(e)) for e in zip(*self.test_spectrums)], \
                      sa.spectrum)
+
+    def test_different_sample_size(self):
+        sa = pa.SpectrumAnalyzer(points=5)
+        for i in self.test_spectrums:
+            sa.sample(i)
+        spectrum = sa.spectrum
+        sa.sample(self.test_spectrums[0][1:])
+        self.assertEqual(spectrum, sa.spectrum)
+
+    def test_frequency_bands(self):
+        sf = 19875
+        p = 5
+        sa = pa.SpectrumAnalyzer(points=p, sampling_frequency=sf)
+        #Note *halving* because of sampling / real frequency relationship.
+        expectedFrequencies = [(((sf/2.0) / p) * i) for i in range(p)]
+        self.assertEqual(expectedFrequencies, sa.frequencies)
+
+    def test_higher_than_average_bands(self):
+        sa = pa.SpectrumAnalyzer(points=5)
+        threshold = 5
+        for i in self.test_spectrums:
+            sa.sample(i)
+        #Feed an artificially inflated reading.
+        sa.sample([10,500,10,500,20])
+        #Get indexes from bands whose magnitude surpasses the average by
+        #the given threshold
+        highest_bands = sa.frequencies_over_average(threshold=threshold)
+        self.assertEqual([1,3], highest_bands)
+
+    def test_obtain_band_for(self):
+        p = 5
+        sf = 1500 #If sampling frequency is 1500 Hz, it means the
+                  #maximum analyzable frequency is 750 Hz.
+        sa = pa.SpectrumAnalyzer(points = p, sampling_frequency = sf)
+        #These are *real* frequencies
+        self.assertEqual(2, sa.frequency_band_for(450))
+        self.assertIsInstance(sa.frequency_band_for(450), int)
+        self.assertEqual(3, sa.frequency_band_for(451))
+        self.assertEqual(None, sa.frequency_band_for(751))
+        self.assertEqual(0, sa.frequency_band_for(1))
+
+    def test_frequency_boundaries_for_band(self):
+        p = 10
+        sf = 3000
+        #Maximum SF is 300, so each bin will be *150 HZ*, not 300.
+        sa = pa.SpectrumAnalyzer(points = p, sampling_frequency = sf)
+        self.assertEqual((0, 150), sa.frequencies_for_band(0))
+        self.assertEqual((1350, 1500), sa.frequencies_for_band(9))
+        self.assertEqual(None, sa.frequencies_for_band(10))
+
+
+#I really don't know how to test this :/
+class TestGStreamerMessageHandler(unittest.TestCase):
+    def setUp(self):
+        methods={'level': lambda x: x, 'spectrum': lambda x: x}
+        gmh = pa.GStreamerMessageHandler(methods)
         
+    def test_handler(self):
+        pass
+
+
+
 
 if __name__ == '__main__':
     unittest.main()
