@@ -11,8 +11,7 @@ import subprocess
 try:
     import gobject
     import gst
-    import subprocess
-    from glib import GError
+    from gobject import GError
 except ImportError:
     print("Can't import module: %s. it may not be available for this"
           "version of Python, which is: " % sys.exc_info()[1], file=sys.stderr)
@@ -21,21 +20,21 @@ except ImportError:
 
 
 #Frequency bands for FFT
-BINS = 256 
+BINS = 256
 #How often to take a sample and do FFT on it.
 FFT_INTERVAL = 100000000 #In nanoseconds, so this is every 1/10th second
 #Sampling frequency. The effective maximum frequency we can analyze is
 #half of this (see Nyquist's theorem)
-SAMPLING_FREQUENCY = 44100 
+SAMPLING_FREQUENCY = 44100
 #The default test frequency should be in the middle of the frequency band
 #that delimits the first and second thirds of the frequency range.
 #That gives a not-so-ear-piercing tone and should ensure there's no
 #spillout to neighboring frequency bands.
-DEFAULT_TEST_FREQUENCY = (SAMPLING_FREQUENCY * BINS) / (6 * BINS) + \
-                         (SAMPLING_FREQUENCY / (2 * BINS))
+DEFAULT_TEST_FREQUENCY = (SAMPLING_FREQUENCY/(2*  BINS)) * int(BINS / 3) - \
+                         (SAMPLING_FREQUENCY/(2*  BINS)) / 2
 #only sample a signal when peak level is in this range (in dB attenuation,
 #0 means no attenuation (and horrible clipping).
-REC_LEVEL_RANGE = (-2.0, -10)
+REC_LEVEL_RANGE = (-2.0, -12.0)
 #For our test signal to be considered present, it has to be this much higher
 #than the average of the rest of the frequencies (to ensure we have a nice,
 #clear peak). This is in dB.
@@ -54,8 +53,9 @@ class PIDController(object):
 
     def input_change(self, process_feedback, dt):
         """ Calculates desired input value change.
-        
-            Based on process feedback and time inteval (dt)."""
+
+            Based on process feedback and time inteval (dt).
+        """
         error = self.setpoint - process_feedback
         self.integral = self.integral + (error * dt)
         derivative = (error - self._previous_error) / dt
@@ -70,8 +70,9 @@ class PIDController(object):
 
     def set_change_limit(self, limit):
         """Ensures that input value changes are lower than limit.
-        
-           Setting limit of zero disables this. """
+
+           Setting limit of zero disables this. 
+        """
         self._change_limit = limit
 
 
@@ -101,8 +102,8 @@ class PAVolumeController(object):
             return False
         if not self.identifier:
             return False
-        command = ['pactl', 
-                   'set-%s-volume' % (self.pa_types[self.type]), 
+        command = ['pactl',
+                   'set-%s-volume' % (self.pa_types[self.type]),
                    str(self.identifier[0]),
                    str(int(volume))+"%"]
         if False == self.method(command):
@@ -123,7 +124,7 @@ class PAVolumeController(object):
                        (self.identifier +  (self.type,))
                 self.logger.info(message)
             return self.identifier
-            
+
 
     def _get_identifier_for(self, type):
         """Gets default PulseAudio identifier for given type.
@@ -137,7 +138,7 @@ class PAVolumeController(object):
         """
 
         if type not in self.pa_types:
-            return None 
+            return None
         command = ['pactl', 'list', self.pa_types[type] + "s", 'short']
 
         #Expect lines of this form (field separator is tab):
@@ -163,21 +164,35 @@ class PAVolumeController(object):
             return False
 
 
-class SpectrumAnalyzer(object):
-    def __init__(self, points, sampling_frequency=44100):
+class FileDumper(object):
+    def write_to_file(self, filename, data):
+        try:
+            with open(filename, "wb") as f:
+                for i in data:
+                    print(i, file=f)
+            return_value = True
+        except (TypeError, IOError):
+            return_value = False
+        return return_value
+
+
+class SpectrumAnalyzer(FileDumper):
+    def __init__(self, points, sampling_frequency=44100, 
+                 wanted_samples = 20):
         self.spectrum = [0] * points
         self.number_of_samples = 0
+        self.wanted_samples = wanted_samples
         self.sampling_frequency = sampling_frequency
         #Frequencies should contain *real* frequency which is half of
         #the sampling frequency
-        self.frequencies = [((sampling_frequency / 2.0) / points) * i 
+        self.frequencies = [((sampling_frequency / 2.0) / points) * i
                             for i in range(points)]
 
     def _average(self):
         return sum(self.spectrum) / len(self.spectrum)
 
     def sample(self, sample):
-        if len(sample) != len(self.spectrum): 
+        if len(sample) != len(self.spectrum):
             return
         self.spectrum = [((old * self.number_of_samples) + new) /
                          (self.number_of_samples + 1)
@@ -189,25 +204,43 @@ class SpectrumAnalyzer(object):
 
     def frequency_band_for(self, frequency):
         """Convenience function to tell me which band
-           a frequency is contained in"""
+           a frequency is contained in
+        """
         #Note that actual frequencies are half of what the sampling
         #frequency would tell us. If SF is 44100 then maximum actual
         #frequency is 22050, and if I have 10 frequency bins each will
-        #contain only 2205 Hz, not 4410 Hz. 
+        #contain only 2205 Hz, not 4410 Hz.
         max_frequency = self.sampling_frequency / 2
         if frequency > max_frequency or frequency < 0 :
             return None
         band = float(frequency) / (max_frequency / len(self.spectrum))
-        return int(math.ceil(band)) - 1 
+        return int(math.ceil(band)) - 1
 
     def frequencies_for_band(self, band):
         """Convenience function to tell me the delimiting frequencies
-          for a band"""
+           for a band
+        """
         if band >= len(self.spectrum) or band < 0:
             return None
-        lower = self.frequencies[band] 
+        lower = self.frequencies[band]
         upper = lower + ((self.sampling_frequency / 2.0) / len(self.spectrum))
         return (lower, upper)
+
+    def sampling_complete(self):
+        return self.number_of_samples >= self.wanted_samples
+
+
+
+class GStreamerRawAudioRecorder(FileDumper):
+    def __init__(self):
+        self.raw_buffers = []
+
+    def buffer_handler(self, sink):
+        buffer = sink.emit('pull-buffer')
+        self.raw_buffers.append(buffer.data)
+
+    def get_raw_audio(self):
+        return ''.join(self.raw_buffers)
 
 
 class GStreamerMessageHandler(object):
@@ -226,7 +259,7 @@ class GStreamerMessageHandler(object):
                           volume
            spectrum_analyzer: instance of SpectrumAnalyzer to collect
                               data from spectrum messages
-           
+
         """
         self.current_level = sys.maxsize
         self.logger = logger
@@ -235,26 +268,26 @@ class GStreamerMessageHandler(object):
         self.spectrum_analyzer = spectrum_analyzer
         self.volume_controller = volumecontroller
 
+    def set_quit_method(self, method):
+        """ Method that will be called when sampling is complete."""
+        self._quit_method = method
+
     def bus_message_handler(self, bus, message):
         if message.type == gst.MESSAGE_ELEMENT:
             message_name = message.structure.get_name()
-            if message.structure.get_name() == 'spectrum' :
-                #First check that the data is adequate (who can tell us that?)
-                fft_magnitudes = message.structure['magnitude'] 
-                self.spectrum_method(self.spectrum_analyzer, fft_magnitudes) 
+            if message_name == 'spectrum' :
+                fft_magnitudes = message.structure['magnitude']
+                self.spectrum_method(self.spectrum_analyzer, fft_magnitudes)
 
-            if message.structure.get_name() == 'level':
+            if message_name == 'level':
                 #peak_value is our process feedback
                 peak_value = message.structure['peak'][0]
-                self.level_method(peak_value, self.pid_controller, self.volume_controller) 
+                self.level_method(peak_value, self.pid_controller, 
+                                  self.volume_controller)
 
-                #invoke PIDController's input method
-                #get the desired control input value
-                #apply that to recorder's pavolumecontroller
-        
     #Adjust recording level
     def level_method(self, level, pid_controller, volume_controller):
-        #If volume controller doesn't return a valid volume, 
+        #If volume controller doesn't return a valid volume,
         #we can't control it :(
         current_volume = volume_controller.get()
         if current_volume == None:
@@ -263,17 +296,24 @@ class GStreamerMessageHandler(object):
             return
         self.current_level = level
         change = pid_controller.input_change(level, 0.10)
-        logging.debug("level: %s, change: %d, volume: %d" % 
-                (level, change, current_volume))
+        logging.debug("Peak level: %(peak_level).2f, volume: %(volume)d%%, "
+                      "Volume change: %(change)f%%"%
+                      {'peak_level': level, 
+                       'change': change, 
+                       'volume': current_volume})
         volume_controller.set(current_volume + change)
 
     #Only sample if level is within the threshold
     def spectrum_method(self, analyzer, spectrum):
         if self.rec_level_range[1] <= self.current_level <= self.rec_level_range[0]:
-            self.logger.debug("Sampling, recorded %d samples" % analyzer.number_of_samples)
+            self.logger.debug("Sampling, recorded %d samples" % 
+                               analyzer.number_of_samples)
             analyzer.sample(spectrum)
-            #If I've collected a certain number of samples, send a signal
-            #that should stop the process now.
+        if analyzer.sampling_complete() and self._quit_method:
+            self.logger.info("Sampling complete, ending process")
+            self._quit_method()
+
+
 
 
 class GstAudioObject(object):
@@ -308,9 +348,9 @@ class Recorder(GstAudioObject):
     def __init__(self, bins=BINS, sampling_frequency=SAMPLING_FREQUENCY,
                  fft_interval=FFT_INTERVAL, logger=None):
         super(Recorder, self).__init__()
-        pipeline_description=('''autoaudiosrc name=recordersrc
+        pipeline_description=('''autoaudiosrc 
         ! queue
-        ! level message=true name=recorderlevel
+        ! level message=true 
         ! audioconvert
         ! audio/x-raw-int,channels=1, rate=%(rate)s
         ! audioresample
@@ -392,37 +432,48 @@ def main():
         level = logging.DEBUG
     if args.verbose:
         level = logging.INFO
-    logging.basicConfig(level=level) 
+    logging.basicConfig(level=level)
     #Launches recording pipeline. I need to hook up into the gst
-    #messages. 
+    #messages.
     recorder = Recorder(logger=logging)
-    #Just launches the playing pipeline 
+    #Just launches the playing pipeline
     player = Player(frequency=args.frequency, logger=logging)
-    #This just receives a process feedback and tells me how much to change to 
+    #This just receives a process feedback and tells me how much to change to
     #achieve the setpoint
-    pidctrl = PIDController(Kp=1.0, Ki=.01, Kd=0.01, setpoint=REC_LEVEL_RANGE[0])
-    pidctrl.set_change_limit(10)
-    #This  gathers spectrum data. Should be able to do the 
+    pidctrl = PIDController(Kp=0.7, Ki=.01, Kd=0.01, 
+                            setpoint=REC_LEVEL_RANGE[0])
+    pidctrl.set_change_limit(5)
+    #This  gathers spectrum data. Should be able to do the
     #frequency band analysis.
-    analyzer = SpectrumAnalyzer(points=BINS, sampling_frequency=SAMPLING_FREQUENCY)
+    analyzer = SpectrumAnalyzer(points=BINS, 
+                                sampling_frequency=SAMPLING_FREQUENCY)
+
+    #this receives 'buffer' messages and gathers raw audio data
+    rawaudio = GStreamerRawAudioRecorder()
+
     #Handles most of the time-dependent logic:
     # - On 'level' messages, sends feedback to the pidctrl and sets volume
     # accordingly.
     # - On 'spectrum' messages, gets spectrum magnitudes and #
-    # feeds them into the analyzer, ONLY if the data is adequate 
+    # feeds them into the analyzer, ONLY if the data is adequate
     # (not over the setpoint)
 
     #Volume controllers actually set volumes for their device types.
+    #we should at least issue a warning
     recorder.volumecontroller=PAVolumeController(type='input', logger = logging)
-    recorder.volumecontroller.get_identifier()
+    if not recorder.volumecontroller.get_identifier():
+        logger.warning("Unable to get input volume control identifier. "
+                       "Test results will probably be invalid")
     recorder.volumecontroller.set(0)
 
     player.volumecontroller=PAVolumeController(type='output', logger = logging)
-    player.volumecontroller.get_identifier()
-    player.volumecontroller.set(30)
+    if not player.volumecontroller.get_identifier():
+        logger.warning("Unable to get output volume control identifier. "
+                       "Test results will probably be invalid")
+    player.volumecontroller.set(70)
 
-    gmh = GStreamerMessageHandler(rec_level_range=REC_LEVEL_RANGE, 
-                                  logger=logging, 
+    gmh = GStreamerMessageHandler(rec_level_range=REC_LEVEL_RANGE,
+                                  logger=logging,
                                   volumecontroller=recorder.volumecontroller,
                                   pidcontroller=pidctrl,
                                   spectrum_analyzer=analyzer)
@@ -430,12 +481,20 @@ def main():
     #I need to tell the recorder which method will handle messages.
     recorder.register_message_handler(gmh.bus_message_handler)
 
+    recorder.register_buffer_handler(rawaudio.buffer_handler)
+
     #Start the loops
     gobject.threads_init()
     loop = gobject.MainLoop()
     gobject.timeout_add_seconds(0, player.start)
     gobject.timeout_add_seconds(0, recorder.start)
     gobject.timeout_add_seconds(args.test_duration, loop.quit)
+
+    # Tell the gmh which method to call when enough samples are collected
+    # FIXME: Passing references to loop.quit around is suboptimal.
+    gmh.set_quit_method(loop.quit)
+
+    #Need to do something so that loop.quit gets called by gmh.spectrum_method
     loop.run()
 
     #Stop elements.
@@ -457,9 +516,30 @@ def main():
         print("FAIL: Test frequency of %s is not in one of the "
               "bands with higher-than-average magnitude" % args.frequency )
         return_value = 1
+    #Is the microphone broken?
+    if len(set(analyzer.spectrum))<=1:
+        print("WARNING: Microphone seems broken, didn't even record ambient"
+              " noise")
+    
+
+    #Write some files to disk for later analysis
+
+    if args.audio:
+        if args.verbose:
+            print("Saving recorded audio as %s" % args.audio)
+        if not rawaudio.write_to_file(args.audio, [rawaudio.get_raw_audio()]):
+            print("Couldn't save recorded audio", file=sys.stderr)
+
+    if args.spectrum:
+        if args.verbose:
+            print("Saving spectrum data for plotting as %s" % args.spectrum)
+        if not analyzer.write_to_file(args.spectrum, 
+                                       zip(analyzer.frequencies, 
+                                           analyzer.spectrum)):
+            print("Couldn't save spectrum data for plotting", file=sys.stderr)
+
 
     return return_value
-    
 
 if __name__ == "__main__":
     sys.exit(main())

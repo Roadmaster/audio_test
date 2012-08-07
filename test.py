@@ -2,11 +2,11 @@
 from __future__ import print_function
 from subprocess import CalledProcessError
 import unittest
-import panew as pa
+import audiotest 
 
 class TestPIDController(unittest.TestCase):
     def test_pid(self):
-        pid = pa.PIDController(Kp=0.3, Ki=0.5,Kd=0.7, setpoint=5)
+        pid = audiotest.PIDController(Kp=0.3, Ki=0.5,Kd=0.7, setpoint=5)
         self.assertEqual(pid.integral, 0)
 
         process_feedback = 0
@@ -14,7 +14,7 @@ class TestPIDController(unittest.TestCase):
         self.assertEqual(input_change, 36.75)
 
     def test_pid_descending(self):
-        pid = pa.PIDController(Kp=0.3, Ki=0.5,Kd=0.7, setpoint=5)
+        pid = audiotest.PIDController(Kp=0.3, Ki=0.5,Kd=0.7, setpoint=5)
         self.assertEqual(pid.integral, 0)
 
         process_feedback = 50
@@ -26,7 +26,7 @@ class TestPIDController(unittest.TestCase):
         """ Test that PID controller with change rate limiter doesn't
             send a change rate larger than the limit"""
         limit = 10
-        pid = pa.PIDController(Kp=3, Ki=0.5,Kd=0.7, setpoint=50)
+        pid = audiotest.PIDController(Kp=3, Ki=0.5,Kd=0.7, setpoint=50)
         pid.set_change_limit(limit)
 
         process_feedback = 0
@@ -56,40 +56,40 @@ class TestVolumeControl(unittest.TestCase):
                                 "module-null-sink.c\ts16le 2ch 44100Hz\tIDLE"
 
     def test_invalid_type(self):
-        vc = pa.PAVolumeController('invalid_type', method=lambda x: 
+        vc = audiotest.PAVolumeController('invalid_type', method=lambda x: 
                                                    "doesnt matter")
         self.assertFalse(vc.get_identifier())
         self.assertFalse(vc.set(10))
         self.assertFalse(vc.get())
 
     def test_get_default_sink(self):
-        vc = pa.PAVolumeController('output', method=lambda x: self.pactl_output)
+        vc = audiotest.PAVolumeController('output', method=lambda x: self.pactl_output)
         id = vc._get_identifier_for('output')
         self.assertEqual(id, (0, 'alsa_output.pci-0001_00_1b.0.analog-stereo'))
 
     def test_get_default_source(self):
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         id = vc._get_identifier_for('input')
         self.assertEqual(id, (1, 'alsa_input.pci-0001_00_1b.0.analog-stereo'))
 
     def test_get_sink_null(self):
-        vc = pa.PAVolumeController('output', method=lambda x: self.pactl_null_output)
+        vc = audiotest.PAVolumeController('output', method=lambda x: self.pactl_null_output)
         id = vc._get_identifier_for('output')
         self.assertIsNone(id)
 
     def test_get_source_null(self):
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_null_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_null_input)
         id = vc._get_identifier_for('input')
         self.assertIsNone(id)
 
     def test_set_invalid_volume(self):
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
         self.assertFalse(vc.set(101))
         self.assertFalse(vc.set(-1))
 
     def test_set_valid_volume(self):
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
         self.assertTrue(vc.set(100))
         self.assertEqual(vc.get(), 100)
@@ -100,34 +100,34 @@ class TestVolumeControl(unittest.TestCase):
 
     def test_set_volume_without_identifier(self):
         """ What happens if I don't explicitly call vc.get_identifier()"""
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         self.assertFalse(vc.set(10))
 
     def test_get_volume(self):
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
         self.assertTrue(vc.set(15))
         self.assertEqual(15, vc.get())
 
     def test_get_just_initialized_volume(self):
         """ By definition it's None until I explicitly set it to something """
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
         self.assertEqual(None, vc.get())
 
     def test_get_zero_volume(self):
-        vc = pa.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
         self.assertTrue(vc.set(0))
         self.assertEqual(0, vc.get())
 
     def test_command_executer(self):
-        vc = pa.PAVolumeController('input', method=self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=self.pactl_input)
         vc.get_identifier()
         self.assertFalse(vc._pactl_output("false"))
 
     def test_set_when_method_fails(self):
-        vc = pa.PAVolumeController('input', method=self.pactl_input)
+        vc = audiotest.PAVolumeController('input', method=self.pactl_input)
         vc.get_identifier()
         vc.method=lambda x: False 
         self.assertFalse(vc.set(10))
@@ -140,14 +140,14 @@ class TestSpectrumAnalyzer(unittest.TestCase):
                         [16, 17, 18, 19, 20]]
 
     def test_average_spectrum(self):
-        sa = pa.SpectrumAnalyzer(points=5)
+        sa = audiotest.SpectrumAnalyzer(points=5)
         for i in self.test_spectrums:
             sa.sample(i)
         self.assertEqual([(sum(e) / len(e)) for e in zip(*self.test_spectrums)], \
                      sa.spectrum)
 
     def test_different_sample_size(self):
-        sa = pa.SpectrumAnalyzer(points=5)
+        sa = audiotest.SpectrumAnalyzer(points=5)
         for i in self.test_spectrums:
             sa.sample(i)
         spectrum = sa.spectrum
@@ -157,13 +157,13 @@ class TestSpectrumAnalyzer(unittest.TestCase):
     def test_frequency_bands(self):
         sf = 19875
         p = 5
-        sa = pa.SpectrumAnalyzer(points=p, sampling_frequency=sf)
+        sa = audiotest.SpectrumAnalyzer(points=p, sampling_frequency=sf)
         #Note *halving* because of sampling / real frequency relationship.
         expectedFrequencies = [(((sf/2.0) / p) * i) for i in range(p)]
         self.assertEqual(expectedFrequencies, sa.frequencies)
 
     def test_higher_than_average_bands(self):
-        sa = pa.SpectrumAnalyzer(points=5)
+        sa = audiotest.SpectrumAnalyzer(points=5)
         threshold = 5
         for i in self.test_spectrums:
             sa.sample(i)
@@ -178,7 +178,7 @@ class TestSpectrumAnalyzer(unittest.TestCase):
         p = 5
         sf = 1500 #If sampling frequency is 1500 Hz, it means the
                   #maximum analyzable frequency is 750 Hz.
-        sa = pa.SpectrumAnalyzer(points = p, sampling_frequency = sf)
+        sa = audiotest.SpectrumAnalyzer(points = p, sampling_frequency = sf)
         #These are *real* frequencies
         self.assertEqual(2, sa.frequency_band_for(450))
         self.assertIsInstance(sa.frequency_band_for(450), int)
@@ -189,8 +189,8 @@ class TestSpectrumAnalyzer(unittest.TestCase):
     def test_frequency_boundaries_for_band(self):
         p = 10
         sf = 3000
-        #Maximum SF is 300, so each bin will be *150 HZ*, not 300.
-        sa = pa.SpectrumAnalyzer(points = p, sampling_frequency = sf)
+        #Maximum SF is 1500, so each bin will be *150 HZ*, not 300.
+        sa = audiotest.SpectrumAnalyzer(points = p, sampling_frequency = sf)
         self.assertEqual((0, 150), sa.frequencies_for_band(0))
         self.assertEqual((1350, 1500), sa.frequencies_for_band(9))
         self.assertEqual(None, sa.frequencies_for_band(10))
@@ -199,9 +199,12 @@ class TestSpectrumAnalyzer(unittest.TestCase):
 #I really don't know how to test this :/
 class TestGStreamerMessageHandler(unittest.TestCase):
     def setUp(self):
-        methods={'level': lambda x: x, 'spectrum': lambda x: x}
-        gmh = pa.GStreamerMessageHandler(methods)
-        
+     gmh = audiotest.GStreamerMessageHandler(rec_level_range=None,
+                                  logger=None,
+                                  volumecontroller=None,
+                                  pidcontroller=None,
+                                  spectrum_analyzer=None)
+       
     def test_handler(self):
         pass
 
