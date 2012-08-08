@@ -7,7 +7,7 @@ import audiotest
 class TestPIDController(unittest.TestCase):
     def test_pid(self):
         pid = audiotest.PIDController(Kp=0.3, Ki=0.5,Kd=0.7, setpoint=5)
-        self.assertEqual(pid.integral, 0)
+        self.assertEqual(pid._integral, 0)
 
         process_feedback = 0
         input_change = pid.input_change(process_feedback, dt=0.1)
@@ -15,7 +15,7 @@ class TestPIDController(unittest.TestCase):
 
     def test_pid_descending(self):
         pid = audiotest.PIDController(Kp=0.3, Ki=0.5,Kd=0.7, setpoint=5)
-        self.assertEqual(pid.integral, 0)
+        self.assertEqual(pid._integral, 0)
 
         process_feedback = 50
         input_change = pid.input_change(process_feedback, dt=0.1)
@@ -82,6 +82,11 @@ class TestVolumeControl(unittest.TestCase):
         id = vc._get_identifier_for('input')
         self.assertIsNone(id)
 
+    def test_mute(self):
+        vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
+        vc.get_identifier()
+        self.assertTrue(vc.mute(True))
+
     def test_set_invalid_volume(self):
         vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
@@ -131,6 +136,10 @@ class TestVolumeControl(unittest.TestCase):
         vc.get_identifier()
         vc.method=lambda x: False 
         self.assertFalse(vc.set(10))
+
+    def test_method_return_false(self):
+        vc = audiotest.PAVolumeController('input', method=lambda x: False)
+        self.assertFalse(vc.get_identifier())
 
 
 class TestSpectrumAnalyzer(unittest.TestCase):
