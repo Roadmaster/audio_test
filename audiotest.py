@@ -8,6 +8,9 @@ import math
 import re
 import sys
 import subprocess
+#Trick to prevent gst from hijacking argv parsing
+argv = sys.argv
+sys.argv=[]
 try:
     import gobject
     import gst
@@ -17,6 +20,8 @@ except ImportError:
           "version of Python, which is: " % sys.exc_info()[1], file=sys.stderr)
     print((sys.version), file=sys.stderr)
     sys.exit(127)
+sys.argv = argv
+
 
 
 #Frequency bands for FFT
