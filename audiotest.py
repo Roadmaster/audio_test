@@ -102,7 +102,7 @@ class PAVolumeController(object):
             self.method = self._pactl_output
         self.logger = logger
 
-    def set(self, volume):
+    def set_volume(self, volume):
         if not 0 <= volume <= 100:
             return False
         if not self.identifier:
@@ -116,7 +116,7 @@ class PAVolumeController(object):
         self._volume = volume
         return True
 
-    def get(self):
+    def get_volume(self):
         if not self.identifier:
             return None
         return self._volume
@@ -310,7 +310,7 @@ class GStreamerMessageHandler(object):
     def level_method(self, level, pid_controller, volume_controller):
         #If volume controller doesn't return a valid volume,
         #we can't control it :(
-        current_volume = volume_controller.get()
+        current_volume = volume_controller.get_volume()
         if current_volume == None:
             self.logger.error("Unable to control recording volume."
                               "Test results may be wrong")
@@ -323,7 +323,7 @@ class GStreamerMessageHandler(object):
                       {'peak_level': level,
                        'change': change,
                        'volume': current_volume})
-        volume_controller.set(current_volume + change)
+        volume_controller.set_volume(current_volume + change)
 
     #Only sample if level is within the threshold
     def spectrum_method(self, analyzer, spectrum):
@@ -484,14 +484,14 @@ def main():
     if not recorder.volumecontroller.get_identifier():
         logging.warning("Unable to get input volume control identifier. "
                        "Test results will probably be invalid")
-    recorder.volumecontroller.set(0)
+    recorder.volumecontroller.set_volume(0)
 
     player.volumecontroller = PAVolumeController(type='output',
                                                  logger=logging)
     if not player.volumecontroller.get_identifier():
         logging.warning("Unable to get output volume control identifier. "
                        "Test results will probably be invalid")
-    player.volumecontroller.set(70)
+    player.volumecontroller.set_volume(70)
     player.volumecontroller.mute(False)
 
     #This handles the messages from gstreamer and orchestrates
@@ -522,8 +522,8 @@ def main():
     #When the loop ends, set things back to reasonable states
     player.stop()
     recorder.stop()
-    player.volumecontroller.set(50)
-    recorder.volumecontroller.set(10)
+    player.volumecontroller.set_volume(50)
+    recorder.volumecontroller.set_volume(10)
 
     #See if data gathering was successful.
     test_band = analyzer.frequency_band_for(args.frequency)
@@ -539,7 +539,7 @@ def main():
               "bands with higher-than-average magnitude" % args.frequency)
         return_value = 1
     #Is the microphone broken?
-    if len(set(analyzer.spectrum)) <= 1:
+    if len(set_volume(analyzer.spectrum)) <= 1:
         print("WARNING: Microphone seems broken, didn't even record ambient"
               " noise")
 

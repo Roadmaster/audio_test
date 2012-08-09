@@ -59,8 +59,8 @@ class TestVolumeControl(unittest.TestCase):
         vc = audiotest.PAVolumeController('invalid_type', method=lambda x: 
                                                    "doesnt matter")
         self.assertFalse(vc.get_identifier())
-        self.assertFalse(vc.set(10))
-        self.assertFalse(vc.get())
+        self.assertFalse(vc.set_volume(10))
+        self.assertFalse(vc.get_volume())
 
     def test_get_default_sink(self):
         vc = audiotest.PAVolumeController('output', method=lambda x: self.pactl_output)
@@ -90,41 +90,41 @@ class TestVolumeControl(unittest.TestCase):
     def test_set_invalid_volume(self):
         vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
-        self.assertFalse(vc.set(101))
-        self.assertFalse(vc.set(-1))
+        self.assertFalse(vc.set_volume(101))
+        self.assertFalse(vc.set_volume(-1))
 
     def test_set_valid_volume(self):
         vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
-        self.assertTrue(vc.set(100))
-        self.assertEqual(vc.get(), 100)
-        self.assertTrue(vc.set(15))
-        self.assertEqual(vc.get(), 15)
-        self.assertTrue(vc.set(0))
-        self.assertEqual(vc.get(), 0)
+        self.assertTrue(vc.set_volume(100))
+        self.assertEqual(vc.get_volume(), 100)
+        self.assertTrue(vc.set_volume(15))
+        self.assertEqual(vc.get_volume(), 15)
+        self.assertTrue(vc.set_volume(0))
+        self.assertEqual(vc.get_volume(), 0)
 
     def test_set_volume_without_identifier(self):
         """ What happens if I don't explicitly call vc.get_identifier()"""
         vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
-        self.assertFalse(vc.set(10))
+        self.assertFalse(vc.set_volume(10))
 
     def test_get_volume(self):
         vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
-        self.assertTrue(vc.set(15))
-        self.assertEqual(15, vc.get())
+        self.assertTrue(vc.set_volume(15))
+        self.assertEqual(15, vc.get_volume())
 
     def test_get_just_initialized_volume(self):
         """ By definition it's None until I explicitly set it to something """
         vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
-        self.assertEqual(None, vc.get())
+        self.assertEqual(None, vc.get_volume())
 
     def test_get_zero_volume(self):
         vc = audiotest.PAVolumeController('input', method=lambda x: self.pactl_input)
         vc.get_identifier()
-        self.assertTrue(vc.set(0))
-        self.assertEqual(0, vc.get())
+        self.assertTrue(vc.set_volume(0))
+        self.assertEqual(0, vc.get_volume())
 
     def test_command_executer(self):
         vc = audiotest.PAVolumeController('input', method=self.pactl_input)
@@ -135,7 +135,7 @@ class TestVolumeControl(unittest.TestCase):
         vc = audiotest.PAVolumeController('input', method=self.pactl_input)
         vc.get_identifier()
         vc.method=lambda x: False 
-        self.assertFalse(vc.set(10))
+        self.assertFalse(vc.set_volume(10))
 
     def test_method_return_false(self):
         vc = audiotest.PAVolumeController('input', method=lambda x: False)
