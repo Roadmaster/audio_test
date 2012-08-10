@@ -10,7 +10,7 @@ import sys
 import subprocess
 #Trick to prevent gst from hijacking argv parsing
 argv = sys.argv
-sys.argv=[]
+sys.argv = []
 try:
     import gobject
     import gst
@@ -21,7 +21,6 @@ except ImportError:
     print((sys.version), file=sys.stderr)
     sys.exit(127)
 sys.argv = argv
-
 
 
 #Frequency bands for FFT
@@ -59,7 +58,7 @@ class PIDController(object):
     def input_change(self, process_feedback, dt):
         """ Calculates desired input value change.
 
-            Based on process feedback and time inteval (dt).
+            Based on process feedback and time interval (dt).
         """
         error = self.setpoint - process_feedback
         self._integral = self._integral + (error * dt)
@@ -133,8 +132,6 @@ class PAVolumeController(object):
             return False
         return True
 
-        
-
     def get_identifier(self):
         if self.type:
             self.identifier = self._get_identifier_for(self.type)
@@ -167,15 +164,17 @@ class PAVolumeController(object):
         valid_elements = None
 
         if pa_info:
-            valid_elements = [(int(i.split()[0]), i.split()[1]) \
-                        for i in pa_info.splitlines() \
-                        if not re.match('.*monitor.*', i) \
-                        and not re.match('.*auto_null.*', i)]
+            reject_regex = '.*(monitor|auto_null).*'
+            valid_elements = [element for element in pa_info.splitlines() \
+                              if not re.match(reject_regex, element)]
         if not valid_elements:
             if self.logger:
                 self.logger.error("No valid PulseAudio elements"
                                   " for %s" % (self.type))
             return None
+        #We only need the pulseaudio numeric ID and long name for each element
+        valid_elements = [(int(element.split()[0]), element.split()[1]) \
+                          for e in valid_elements]
         return valid_elements[0]
 
     def _pactl_output(self, command):
@@ -406,8 +405,8 @@ class Recorder(GstAudioObject):
 
 def process_arguments():
     description = """
-        Plays a single frequency through the default output, then records on 
-        the default input device. Analyzes the recorded signal to test for  
+        Plays a single frequency through the default output, then records on
+        the default input device. Analyzes the recorded signal to test for
         presence of the played frequency, if present it exits with success.
     """
     parser = argparse.ArgumentParser(description=description)
@@ -471,7 +470,7 @@ def main():
     pidctrl = PIDController(Kp=0.7, Ki=.01, Kd=0.01,
                             setpoint=REC_LEVEL_RANGE[0])
     pidctrl.set_change_limit(5)
-    #This  gathers spectrum data. 
+    #This  gathers spectrum data.
     analyzer = SpectrumAnalyzer(points=BINS,
                                 sampling_frequency=SAMPLING_FREQUENCY)
     #this receives 'buffer' messages and gathers raw audio data
@@ -507,7 +506,7 @@ def main():
     recorder.register_message_handler(gmh.bus_message_handler)
     recorder.register_buffer_handler(rawaudio.buffer_handler)
 
-    #Create the loop and add a few triggers 
+    #Create the loop and add a few triggers
     gobject.threads_init()
     loop = gobject.MainLoop()
     gobject.timeout_add_seconds(0, player.start)
@@ -539,7 +538,7 @@ def main():
               "bands with higher-than-average magnitude" % args.frequency)
         return_value = 1
     #Is the microphone broken?
-    if len(set_volume(analyzer.spectrum)) <= 1:
+    if len(set(analyzer.spectrum)) <= 1:
         print("WARNING: Microphone seems broken, didn't even record ambient"
               " noise")
 
@@ -547,15 +546,16 @@ def main():
     if args.audio:
         if args.verbose:
             print("Saving recorded audio as %s" % args.audio)
-        if not FileDumper().write_to_file(args.audio, [rawaudio.get_raw_audio()]):
+        if not FileDumper().write_to_file(args.audio,
+                                          [rawaudio.get_raw_audio()]):
             print("Couldn't save recorded audio", file=sys.stderr)
 
     if args.spectrum:
         if args.verbose:
             print("Saving spectrum data for plotting as %s" % args.spectrum)
         if not FileDumper().write_to_file(args.spectrum,
-                                       ["%s,%s" % t for t in 
-                                        zip(analyzer.frequencies, 
+                                       ["%s,%s" % t for t in
+                                        zip(analyzer.frequencies,
                                             analyzer.spectrum)]):
             print("Couldn't save spectrum data for plotting", file=sys.stderr)
 
