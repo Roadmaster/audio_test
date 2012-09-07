@@ -43,12 +43,18 @@ class TestVolumeControl(unittest.TestCase):
 
     def setUp(self):
         self.pactl_output = "0\talsa_output.pci-0001_00_1b.0.analog-stereo\t" + \
-                            "module-alsa-card.c\ts16le 2ch 44100Hz\tSUSPENDED"
+                            "module-alsa-card.c\ts16le 2ch 44100Hz\tSUSPENDED" + \
+                            "\n" +\
+"5\talsa_output.usb-0d8c_C-Media_USB_Headphone_Set-00-Set.analog-stereo\tmodule-alsa-card.c\ts16le 2ch 44100Hz\tSUSPENDED"
 
         self.pactl_input = "0\talsa_output.pci-0001_00_1b.0.analog-stereo.monitor\t" +\
                            "module-alsa-card.c\ts16le 2ch 44100Hz\tIDLE\n" +\
                            "1\talsa_input.pci-0001_00_1b.0.analog-stereo\t" +\
-                           "module-alsa-card.c\ts16le 2ch 44100Hz\tSUSPENDED"
+                           "module-alsa-card.c\ts16le 2ch 44100Hz\tSUSPENDED"  + \
+                           "\n" + \
+"10\talsa_output.usb-0d8c_C-Media_USB_Headphone_Set-00-Set.analog-stereo.monitor\tmodule-alsa-card.c\ts16le 2ch 44100Hz\tSUSPENDED" + \
+                           "\n" + \
+"11\talsa_input.usb-0d8c_C-Media_USB_Headphone_Set-00-Set.analog-mono\tmodule-alsa-card.c\ts16le 1ch 44100Hz\tRUNNING"
 
         self.pactl_null_output = "0\tauto_null\tmodule-null-sink.c\t" +\
                                  "s16le 2ch 44100Hz\tIDLE"

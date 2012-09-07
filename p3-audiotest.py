@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
+from __future__ import division, print_function
 import argparse
 import collections
 import logging
@@ -7,14 +8,19 @@ import math
 import re
 import sys
 import subprocess
+#Trick to prevent gst from hijacking argv parsing
+argv = sys.argv
+sys.argv = []
 try:
-    from gi.repository import GObject
-    from gi.repository import Gst
+    import gobject
+    import gst
+    from gobject import GError
 except ImportError:
     print("Can't import module: %s. it may not be available for this"
           "version of Python, which is: " % sys.exc_info()[1], file=sys.stderr)
     print((sys.version), file=sys.stderr)
     sys.exit(127)
+sys.argv = argv
 
 
 #Frequency bands for FFT
@@ -40,7 +46,34 @@ MAGNITUDE_THRESHOLD = -5.0
 
 
 class PIDController(object):
+    """ A Proportional-Integrative-Derivative controller (PID) controls a
+    process's output to try to maintain a desired output value (known as
+    'setpoint', by continually adjusting the process's input.
+
+    It does so by calculating the "error" (difference between output and
+    setpoint) and attempting to minimize it manipulating the input.
+
+    The desired change to the input is calculated based on error and three
+    constants (Kp, Ki and Kd).  These values can be interpreted in terms of
+    time: P depends on the present error, I on the accumulation of past errors,
+    and D is a prediction of future errors, based on current rate of change.
+    The weighted sum of these three actions is used to adjust the process via a
+    control element.
+
+    In practice, Kp, Ki and Kd are process-dependent and usually have to
+    be tweaked by hand, but once reasonable constants are arrived at, they
+    can apply to a particular process without further modification.
+
+    """
     def __init__(self, Kp, Ki, Kd, setpoint=0):
+        """ Creates a PID controller with given constants and setpoint.
+
+           Arguments:
+           Kp, Ki, Kd: PID constants, see class description.
+           setpoint: desired output value; calls to input_change with
+                     a process output reading will return a desired change
+                     to the input to attempt matching output to this value.
+        """
         self.setpoint = setpoint
         self.Kp = Kp
         self.Ki = Ki
@@ -52,7 +85,7 @@ class PIDController(object):
     def input_change(self, process_feedback, dt):
         """ Calculates desired input value change.
 
-            Based on process feedback and time inteval (dt).
+            Based on process feedback and time interval (dt).
         """
         error = self.setpoint - process_feedback
         self._integral = self._integral + (error * dt)
@@ -95,7 +128,7 @@ class PAVolumeController(object):
             self.method = self._pactl_output
         self.logger = logger
 
-    def set(self, volume):
+    def set_volume(self, volume):
         if not 0 <= volume <= 100:
             return False
         if not self.identifier:
@@ -109,7 +142,7 @@ class PAVolumeController(object):
         self._volume = volume
         return True
 
-    def get(self):
+    def get_volume(self):
         if not self.identifier:
             return None
         return self._volume
@@ -125,8 +158,6 @@ class PAVolumeController(object):
         if False == self.method(command):
             return False
         return True
-
-        
 
     def get_identifier(self):
         if self.type:
@@ -160,15 +191,17 @@ class PAVolumeController(object):
         valid_elements = None
 
         if pa_info:
-            valid_elements = [(int(i.split()[0]), i.split()[1]) \
-                        for i in pa_info.splitlines() \
-                        if not re.match('.*monitor.*', i) \
-                        and not re.match('.*auto_null.*', i)]
+            reject_regex = '.*(monitor|auto_null).*'
+            valid_elements = [element for element in pa_info.splitlines() \
+                              if not re.match(reject_regex, element)]
         if not valid_elements:
             if self.logger:
                 self.logger.error("No valid PulseAudio elements"
                                   " for %s" % (self.type))
             return None
+        #We only need the pulseaudio numeric ID and long name for each element
+        valid_elements = [(int(element.split()[0]), element.split()[1]) \
+                          for element in valid_elements]
         return valid_elements[0]
 
     def _pactl_output(self, command):
@@ -287,15 +320,15 @@ class GStreamerMessageHandler(object):
         self._quit_method = method
 
     def bus_message_handler(self, bus, message):
-        if message.type == Gst.MessageType.ELEMENT:
-            message_name = message.get_structure().get_name()
+        if message.type == gst.MESSAGE_ELEMENT:
+            message_name = message.structure.get_name()
             if message_name == 'spectrum':
-                fft_magnitudes = message.get_structure()['magnitude']
+                fft_magnitudes = message.structure['magnitude']
                 self.spectrum_method(self.spectrum_analyzer, fft_magnitudes)
 
             if message_name == 'level':
                 #peak_value is our process feedback
-                peak_value = message.get_structure()['peak'][0]
+                peak_value = message.structure['peak'][0]
                 self.level_method(peak_value, self.pid_controller,
                                   self.volume_controller)
 
@@ -303,7 +336,7 @@ class GStreamerMessageHandler(object):
     def level_method(self, level, pid_controller, volume_controller):
         #If volume controller doesn't return a valid volume,
         #we can't control it :(
-        current_volume = volume_controller.get()
+        current_volume = volume_controller.get_volume()
         if current_volume == None:
             self.logger.error("Unable to control recording volume."
                               "Test results may be wrong")
@@ -316,7 +349,7 @@ class GStreamerMessageHandler(object):
                       {'peak_level': level,
                        'change': change,
                        'volume': current_volume})
-        volume_controller.set(current_volume + change)
+        volume_controller.set_volume(current_volume + change)
 
     #Only sample if level is within the threshold
     def spectrum_method(self, analyzer, spectrum):
@@ -368,7 +401,7 @@ class Recorder(GstAudioObject):
         ! queue
         ! level message=true
         ! audioconvert
-        ! audio/x-raw,channels=1, rate=(int)%(rate)s
+        ! audio/x-raw-int, channels=1, rate=%(rate)s
         ! audioresample
         ! spectrum interval=%(fft_interval)s bands = %(bands)s
         ! wavenc
@@ -379,7 +412,7 @@ class Recorder(GstAudioObject):
         self.logger = logger
         if self.logger:
             self.logger.debug(pipeline_description)
-        self.pipeline = Gst.parse_launch(pipeline_description)
+        self.pipeline = gst.parse_launch(pipeline_description)
 
     def register_message_handler(self, handler_method):
         if self.logger:
@@ -399,8 +432,8 @@ class Recorder(GstAudioObject):
 
 def process_arguments():
     description = """
-        Plays a single frequency through the default output, then records on 
-        the default input device. Analyzes the recorded signal to test for  
+        Plays a single frequency through the default output, then records on
+        the default input device. Analyzes the recorded signal to test for
         presence of the played frequency, if present it exits with success.
     """
     parser = argparse.ArgumentParser(description=description)
@@ -455,9 +488,8 @@ def main():
         recorder = Recorder(logger=logging)
         #Just launches the playing pipeline
         player = Player(frequency=args.frequency, logger=logging)
-    except GObject.GError as e:
+    except GError:
         logging.critical("Unable to initialize GStreamer pipelines")
-        print(sys.exc_info()[1])
         sys.exit(127)
 
     #This just receives a process feedback and tells me how much to change to
@@ -465,7 +497,7 @@ def main():
     pidctrl = PIDController(Kp=0.7, Ki=.01, Kd=0.01,
                             setpoint=REC_LEVEL_RANGE[0])
     pidctrl.set_change_limit(5)
-    #This  gathers spectrum data. 
+    #This  gathers spectrum data.
     analyzer = SpectrumAnalyzer(points=BINS,
                                 sampling_frequency=SAMPLING_FREQUENCY)
     #this receives 'buffer' messages and gathers raw audio data
@@ -478,14 +510,14 @@ def main():
     if not recorder.volumecontroller.get_identifier():
         logging.warning("Unable to get input volume control identifier. "
                        "Test results will probably be invalid")
-    recorder.volumecontroller.set(0)
+    recorder.volumecontroller.set_volume(0)
 
     player.volumecontroller = PAVolumeController(type='output',
                                                  logger=logging)
     if not player.volumecontroller.get_identifier():
         logging.warning("Unable to get output volume control identifier. "
                        "Test results will probably be invalid")
-    player.volumecontroller.set(70)
+    player.volumecontroller.set_volume(50)
     player.volumecontroller.mute(False)
 
     #This handles the messages from gstreamer and orchestrates
@@ -501,9 +533,8 @@ def main():
     recorder.register_message_handler(gmh.bus_message_handler)
     recorder.register_buffer_handler(rawaudio.buffer_handler)
 
-    #Create the loop and add a few triggers 
-    GObject.threads_init()
-    Gst.init(None)
+    #Create the loop and add a few triggers
+    gobject.threads_init()
     loop = gobject.MainLoop()
     gobject.timeout_add_seconds(0, player.start)
     gobject.timeout_add_seconds(0, recorder.start)
@@ -517,8 +548,8 @@ def main():
     #When the loop ends, set things back to reasonable states
     player.stop()
     recorder.stop()
-    player.volumecontroller.set(50)
-    recorder.volumecontroller.set(10)
+    player.volumecontroller.set_volume(50)
+    recorder.volumecontroller.set_volume(10)
 
     #See if data gathering was successful.
     test_band = analyzer.frequency_band_for(args.frequency)
@@ -542,15 +573,16 @@ def main():
     if args.audio:
         if args.verbose:
             print("Saving recorded audio as %s" % args.audio)
-        if not FileDumper().write_to_file(args.audio, [rawaudio.get_raw_audio()]):
+        if not FileDumper().write_to_file(args.audio,
+                                          [rawaudio.get_raw_audio()]):
             print("Couldn't save recorded audio", file=sys.stderr)
 
     if args.spectrum:
         if args.verbose:
             print("Saving spectrum data for plotting as %s" % args.spectrum)
         if not FileDumper().write_to_file(args.spectrum,
-                                       ["%s,%s" % t for t in 
-                                        zip(analyzer.frequencies, 
+                                       ["%s,%s" % t for t in
+                                        zip(analyzer.frequencies,
                                             analyzer.spectrum)]):
             print("Couldn't save spectrum data for plotting", file=sys.stderr)
 
