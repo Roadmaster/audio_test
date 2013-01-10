@@ -201,7 +201,7 @@ class PAVolumeController(object):
                                   " for %s" % (self.type))
             return None
         #We only need the pulseaudio numeric ID and long name for each element
-        valid_elements = [(int(element.split()[0]), element.split()[1]) \
+        valid_elements = [(int(e.split()[0]), e.split()[1]) \
                           for e in valid_elements]
         return valid_elements[0]
 

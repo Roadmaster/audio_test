@@ -135,7 +135,9 @@ class TestVolumeControl(unittest.TestCase):
     def test_command_executer(self):
         vc = audiotest.PAVolumeController('input', method=self.pactl_input)
         vc.get_identifier()
+        print("Expect this to take 15 seconds")
         self.assertFalse(vc._pactl_output("false"))
+        self.assertEqual('',vc._pactl_output("true"))
 
     def test_set_when_method_fails(self):
         vc = audiotest.PAVolumeController('input', method=self.pactl_input)
@@ -209,6 +211,10 @@ class TestSpectrumAnalyzer(unittest.TestCase):
         self.assertEqual((0, 150), sa.frequencies_for_band(0))
         self.assertEqual((1350, 1500), sa.frequencies_for_band(9))
         self.assertEqual(None, sa.frequencies_for_band(10))
+
+    def test_local_peak_detection(self):
+        sa = audiotest.SpectrumAnalyzer(points=5)
+         
 
 
 #I really don't know how to test this :/
