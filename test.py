@@ -258,7 +258,13 @@ class TestSpectrumAnalyzer(unittest.TestCase):
         sa.sample(self.real_data)
         #Get indexes from bands whose magnitude surpasses the average by
         #the given threshold
+        sa.derive()
         highest_bands = sa.frequencies_over_average(threshold=-3.0)
+        audiotest.FileDumper().write_to_file("derive.csv",
+                                       ["%s,%s" % t for t in
+                                           zip(sa.frequencies,
+                                               sa.derive())])
+
         self.assertIn(85, highest_bands)
 
          
