@@ -286,6 +286,13 @@ class SpectrumAnalyzer(object):
     def sampling_complete(self):
         return self.number_of_samples >= self.wanted_samples
 
+    def derive(self):
+        #http://terpconnect.umd.edu/~toh/spectrum/Differentiation.html
+        der = [(self.spectrum[i+1] - self.spectrum[i]) / self.sampling_frequency
+                for i in range(len(self.spectrum)-1)]
+        return der
+                
+
 
 class GStreamerRawAudioRecorder(object):
     def __init__(self):
