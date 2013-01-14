@@ -41,8 +41,7 @@ DEFAULT_TEST_FREQUENCY = (SAMPLING_FREQUENCY / (2 * BINS)) * int(BINS / 3) - \
 #0 means no attenuation (and horrible clipping).
 REC_LEVEL_RANGE = (-2.0, -12.0)
 #For our test signal to be considered present, it has to be this much higher
-#than the average of the rest of the frequencies (to ensure we have a nice,
-#clear peak). This is in dB.
+#base level (minimum magnitude). This is in dB.
 MAGNITUDE_THRESHOLD = 5.0
 
 
@@ -579,12 +578,12 @@ def main():
     if test_band in candidate_bands:
         freqs_for_band = analyzer.frequencies_for_band(test_band)
         logging.info("PASS: Test frequency of %s in band (%.2f, %.2f) "
-              "which had a magnitude higher than the average" %
+              "which contains a magnitude peak" %
             ((args.frequency,) + freqs_for_band))
         return_value = 0
     else:
         logging.info("FAIL: Test frequency of %s is not in one of the "
-              "bands with higher-than-average magnitude" % args.frequency)
+              "bands with magnitude peaks" % args.frequency)
         return_value = 1
     #Is the microphone broken?
     if len(set(analyzer.spectrum)) <= 1:
