@@ -219,18 +219,6 @@ class TestSpectrumAnalyzer(unittest.TestCase):
         expectedFrequencies = [(((sf/2.0) / p) * i) for i in range(p)]
         self.assertEqual(expectedFrequencies, sa.frequencies)
 
-    def test_higher_than_average_bands(self):
-        sa = audiotest.SpectrumAnalyzer(points=5)
-        threshold = 5
-        for i in self.test_spectrums:
-            sa.sample(i)
-        #Feed an artificially inflated reading.
-        sa.sample([10,500,10,500,20])
-        #Get indexes from bands whose magnitude surpasses the average by
-        #the given threshold
-        highest_bands = sa.frequencies_over_average(threshold=threshold)
-        self.assertEqual([1,3], highest_bands)
-
     def test_obtain_band_for(self):
         p = 5
         sf = 1500 #If sampling frequency is 1500 Hz, it means the
@@ -252,22 +240,22 @@ class TestSpectrumAnalyzer(unittest.TestCase):
         self.assertEqual((1350, 1500), sa.frequencies_for_band(9))
         self.assertEqual(None, sa.frequencies_for_band(10))
 
-    def test_local_peak_detection(self):
-        #We expect a local peak in band 84-86
+    def test_real_signal(self):
         sa = audiotest.SpectrumAnalyzer(points=256)
         sa.sample(self.real_data)
-        #Get indexes from bands whose magnitude surpasses the average by
-        #the given threshold
-        sa.derive()
-        highest_bands = sa.frequencies_over_average(threshold=-3.0)
-        audiotest.FileDumper().write_to_file("derive.csv",
-                                       ["%s,%s" % t for t in
-                                           zip(sa.frequencies,
-                                               sa.derive())])
+        highest_bands = sa.frequencies_over_average(threshold=-2.0)
+        print(highest_bands)
+        #84 should be, 23 shouldn't
+        self.assertIn(84, highest_bands)
+        self.assertNotIn(23, highest_bands)
 
-        self.assertIn(85, highest_bands)
-
-         
+    def test_peaks(self):
+        sa = audiotest.SpectrumAnalyzer(points=256)
+        sa.sample(self.real_data)
+        highest_bands = sa.twin_peaks(threshold=2.0)
+        print(highest_bands)
+        self.assertIn(84, highest_bands)
+        self.assertNotIn(23, highest_bands)
 
 
 #I really don't know how to test this :/
