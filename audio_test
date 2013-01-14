@@ -43,7 +43,7 @@ REC_LEVEL_RANGE = (-2.0, -12.0)
 #For our test signal to be considered present, it has to be this much higher
 #than the average of the rest of the frequencies (to ensure we have a nice,
 #clear peak). This is in dB.
-MAGNITUDE_THRESHOLD = -5.0
+MAGNITUDE_THRESHOLD = 5.0
 
 
 class PIDController(object):
@@ -255,9 +255,18 @@ class SpectrumAnalyzer(object):
                          for old, new in zip(self.spectrum, sample)]
         self.number_of_samples += 1
 
-    def frequencies_over_average(self, threshold=0.0):
+    def frequencies_with_peak_magnitude(self, threshold=1.0):
+        #First establish the base level
+        per_magnitude_bins = collections.defaultdict(int) 
+        for magnitude in self.spectrum:
+            per_magnitude_bins[magnitude] += 1
+        base_level = max(per_magnitude_bins, 
+                         key=lambda x: per_magnitude_bins[x])
+        #Now return all values that are higher (more positive)
+        #than base_level + threshold
+
         return [i for i in range(len(self.spectrum)) \
-                if self.spectrum[i] >= self._average() - threshold]
+                if self.spectrum[i] >= base_level + threshold]
 
     def frequency_band_for(self, frequency):
         """Convenience function to tell me which band
@@ -285,13 +294,6 @@ class SpectrumAnalyzer(object):
 
     def sampling_complete(self):
         return self.number_of_samples >= self.wanted_samples
-
-    def derive(self):
-        #http://terpconnect.umd.edu/~toh/spectrum/Differentiation.html
-        der = [(self.spectrum[i+1] - self.spectrum[i]) / self.sampling_frequency
-                for i in range(len(self.spectrum)-1)]
-        return der
-                
 
 
 class GStreamerRawAudioRecorder(object):
@@ -570,7 +572,10 @@ def main():
 
     #See if data gathering was successful.
     test_band = analyzer.frequency_band_for(args.frequency)
-    candidate_bands = analyzer.frequencies_over_average(MAGNITUDE_THRESHOLD)
+    candidate_bands = analyzer.frequencies_with_peak_magnitude(MAGNITUDE_THRESHOLD)
+    for band in candidate_bands:
+        logging.debug("Band (%.2f,%.2f) contains a magnitude peak" %
+                      analyzer.frequencies_for_band(band))
     if test_band in candidate_bands:
         freqs_for_band = analyzer.frequencies_for_band(test_band)
         logging.info("PASS: Test frequency of %s in band (%.2f, %.2f) "
