@@ -241,12 +241,22 @@ class TestSpectrumAnalyzer(unittest.TestCase):
         self.assertEqual(None, sa.frequencies_for_band(10))
 
     def test_peak_detection(self):
+        sa = audiotest.SpectrumAnalyzer(points=12)
+        sa.sample([0,2,3,2,0,0,0,4,10,9,5,0])
+        highest_bands = sa.frequencies_with_peak_magnitude(threshold=2.0)
+        self.assertEqual([2,8], highest_bands)
+        highest_bands = sa.frequencies_with_peak_magnitude(threshold=3.1)
+        self.assertEqual([8], highest_bands)
+
+    def test_peak_detection_real_signal(self):
         sa = audiotest.SpectrumAnalyzer(points=256)
         sa.sample(self.real_data)
-        highest_bands = sa.frequencies_with_peak_magnitude(threshold=2.0)
-        print(highest_bands)
-        self.assertIn(84, highest_bands)
-        self.assertNotIn(23, highest_bands)
+        highest_bands = sa.frequencies_with_peak_magnitude(threshold=1.0)
+        self.assertEqual([1,14,16,19,23,84], highest_bands)
+        highest_bands = sa.frequencies_with_peak_magnitude(threshold=1.6)
+        self.assertEqual([1,14,84], highest_bands)
+        highest_bands = sa.frequencies_with_peak_magnitude(threshold=2.5)
+        self.assertEqual([1,84], highest_bands)
 
 
 #I really don't know how to test this :/

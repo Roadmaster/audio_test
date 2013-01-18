@@ -42,7 +42,7 @@ DEFAULT_TEST_FREQUENCY = (SAMPLING_FREQUENCY / (2 * BINS)) * int(BINS / 3) - \
 REC_LEVEL_RANGE = (-2.0, -12.0)
 #For our test signal to be considered present, it has to be this much higher
 #base level (minimum magnitude). This is in dB.
-MAGNITUDE_THRESHOLD = 5.0
+MAGNITUDE_THRESHOLD = 2.5
 
 
 class PIDController(object):
@@ -263,9 +263,16 @@ class SpectrumAnalyzer(object):
                          key=lambda x: per_magnitude_bins[x])
         #Now return all values that are higher (more positive)
         #than base_level + threshold
+        peaks = [] 
+        for i in range(1, len(self.spectrum) - 1):
+            first_index = i - 1
+            last_index = i + 1
+            if self.spectrum[first_index] < self.spectrum[i] and \
+                    self.spectrum[last_index] < self.spectrum[i] and \
+                    self.spectrum[i] > base_level + threshold :
+                peaks.append(i)
 
-        return [i for i in range(len(self.spectrum)) \
-                if self.spectrum[i] >= base_level + threshold]
+        return peaks
 
     def frequency_band_for(self, frequency):
         """Convenience function to tell me which band
