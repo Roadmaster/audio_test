@@ -1,0 +1,9 @@
+This is just a git version of Ubuntu's audio_test script from checkbox.
+
+This mirrors the authoritative source location which is at:
+
+https://code.launchpad.net/~roadmr/+junk/audio_test
+
+Current problems:
+
+ * The gstreamer 1.0 messages API is TOTALLY broken from pygi.
