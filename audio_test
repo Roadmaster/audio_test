@@ -10,21 +10,17 @@ import re
 import subprocess
 import sys
 import time
-#Trick to prevent gst from hijacking argv parsing
-argv = sys.argv
-sys.argv = []
 try:
-    from gi.repository import GObject as gobject
     import gi
     gi.require_version('Gst','1.0')
-    from gi.repository import Gst as gst
-    gst.init(None)  # This has to be done very early so it can find elements
+    from gi.repository import GObject
+    from gi.repository import Gst
+    Gst.init(None)  # This has to be done very early so it can find elements
 except ImportError:
     print("Can't import module: %s. it may not be available for this"
           "version of Python, which is: " % sys.exc_info()[1], file=sys.stderr)
     print((sys.version), file=sys.stderr)
     sys.exit(127)
-sys.argv = argv
 
 
 #Frequency bands for FFT
@@ -347,7 +343,7 @@ class GStreamerMessageHandler(object):
         self._quit_method = method
 
     def bus_message_handler(self, bus, message):
-        if message.type == gst.MessageType.ELEMENT:
+        if message.type == Gst.MessageType.ELEMENT:
             message_name = message.get_structure().get_name()
             if message_name == 'spectrum':
                 #Due to an upstream bug, a structure's get_value method
@@ -413,10 +409,10 @@ class GstAudioObject(object):
             self.logger.info(message)
 
     def start(self):
-        self._set_state(gst.State.PLAYING, "Starting")
+        self._set_state(Gst.State.PLAYING, "Starting")
 
     def stop(self):
-        self._set_state(gst.State.NULL, "Stopping")
+        self._set_state(Gst.State.NULL, "Stopping")
 
 
 class Player(GstAudioObject):
@@ -429,7 +425,7 @@ class Player(GstAudioObject):
         self.logger = logger
         if self.logger:
             self.logger.debug(self.pipeline_description)
-        self.pipeline = gst.parse_launch(self.pipeline_description)
+        self.pipeline = Gst.parse_launch(self.pipeline_description)
 
 
 class Recorder(GstAudioObject):
@@ -451,7 +447,7 @@ class Recorder(GstAudioObject):
         self.logger = logger
         if self.logger:
             self.logger.debug(pipeline_description)
-        self.pipeline = gst.parse_launch(pipeline_description)
+        self.pipeline = Gst.parse_launch(pipeline_description)
 
     def register_message_handler(self, handler_method):
         if self.logger:
@@ -553,7 +549,7 @@ def main():
         recorder = Recorder(logger=logging)
         #Just launches the playing pipeline
         player = Player(frequency=args.frequency, logger=logging)
-    except gobject.GError as excp:
+    except GObject.GError as excp:
         logging.critical("Unable to initialize GStreamer pipelines: %s", excp)
         sys.exit(127)
 
@@ -600,11 +596,11 @@ def main():
     recorder.register_buffer_handler(rawaudio.buffer_handler)
 
     #Create the loop and add a few triggers
-    gobject.threads_init()
-    loop = gobject.MainLoop()
-    gobject.timeout_add_seconds(0, player.start)
-    gobject.timeout_add_seconds(0, recorder.start)
-    gobject.timeout_add_seconds(args.test_duration, loop.quit)
+    GObject.threads_init()
+    loop = GObject.MainLoop()
+    GObject.timeout_add_seconds(0, player.start)
+    GObject.timeout_add_seconds(0, recorder.start)
+    GObject.timeout_add_seconds(args.test_duration, loop.quit)
 
     # Tell the gmh which method to call when enough samples are collected
     gmh.set_quit_method(loop.quit)
