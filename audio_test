@@ -42,7 +42,8 @@ REC_LEVEL_RANGE = (-2.0, -12.0)
 #For our test signal to be considered present, it has to be this much higher
 #than the base level (minimum magnitude). This is in dB.
 MAGNITUDE_THRESHOLD = 2.5
-
+#Volume for the sample tone (in %)
+PLAY_VOLUME = 70
 
 class PIDController(object):
     """ A Proportional-Integrative-Derivative controller (PID) controls a
@@ -301,18 +302,6 @@ class SpectrumAnalyzer(object):
         return self.number_of_samples >= self.wanted_samples
 
 
-class GStreamerRawAudioRecorder(object):
-    def __init__(self):
-        self.raw_buffers = []
-
-    def buffer_handler(self, sink):
-        buffer = sink.emit('pull-buffer')
-        self.raw_buffers.append(buffer.data)
-
-    def get_raw_audio(self):
-        return ''.join(self.raw_buffers)
-
-
 class GStreamerMessageHandler(object):
     def __init__(self, rec_level_range, logger, volumecontroller,
                  pidcontroller, spectrum_analyzer):
@@ -432,7 +421,8 @@ class Player(GstAudioObject):
 
 
 class Recorder(GstAudioObject):
-    def __init__(self, bins=BINS, sampling_frequency=SAMPLING_FREQUENCY,
+    def __init__(self, output_file, bins=BINS,
+                 sampling_frequency=SAMPLING_FREQUENCY,
                  fft_interval=FFT_INTERVAL, logger=None):
         super(Recorder, self).__init__()
         pipeline_description = ('''autoaudiosrc
@@ -443,10 +433,11 @@ class Recorder(GstAudioObject):
         ! audioresample
         ! spectrum interval=%(fft_interval)s bands = %(bands)s
         ! wavenc
-        ! appsink name=recordersink emit-signals=true''' %
+        ! filesink location=%(file)s''' %
         {'bands': bins,
          'rate': sampling_frequency,
-         'fft_interval': fft_interval})
+         'fft_interval': fft_interval,
+         'file': output_file})
         self.logger = logger
         if self.logger:
             self.logger.debug(pipeline_description)
@@ -459,13 +450,6 @@ class Recorder(GstAudioObject):
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
         self.bus.connect('message', handler_method)
-
-    def register_buffer_handler(self, handler_method):
-        if self.logger:
-            message = "Registering buffer handler: %s" % handler_method
-            self.logger.debug(message)
-        self.sink = self.pipeline.get_by_name('recordersink')
-        self.sink.connect('new-sample', handler_method)
 
 
 def parse_spectrum_message_structure(struct_string):
@@ -510,7 +494,7 @@ def process_arguments():
                     It may exit sooner if it determines it has enough data.""")
     parser.add_argument("-a", "--audio",
             action='store',
-            default=None,
+            default="/dev/null",
             type=str,
             help="File to save recorded audio in .wav format")
     parser.add_argument("-q", "--quiet",
@@ -549,7 +533,7 @@ def main():
     try:
         #Launches recording pipeline. I need to hook up into the gst
         #messages.
-        recorder = Recorder(logger=logging)
+        recorder = Recorder(output_file=args.audio, logger=logging)
         #Just launches the playing pipeline
         player = Player(frequency=args.frequency, logger=logging)
     except GObject.GError as excp:
@@ -564,8 +548,6 @@ def main():
     #This  gathers spectrum data.
     analyzer = SpectrumAnalyzer(points=BINS,
                                 sampling_frequency=SAMPLING_FREQUENCY)
-    #this receives 'buffer' messages and gathers raw audio data
-    rawaudio = GStreamerRawAudioRecorder()
 
     #Volume controllers actually set volumes for their device types.
     #we should at least issue a warning
@@ -582,7 +564,7 @@ def main():
     if not player.volumecontroller.get_identifier():
         logging.warning("Unable to get output volume control identifier. "
                        "Test results will probably be invalid")
-    player.volumecontroller.set_volume(30)
+    player.volumecontroller.set_volume(PLAY_VOLUME)
     player.volumecontroller.mute(False)
 
     #This handles the messages from gstreamer and orchestrates
@@ -596,7 +578,6 @@ def main():
 
     #I need to tell the recorder which method will handle messages.
     recorder.register_message_handler(gmh.bus_message_handler)
-    recorder.register_buffer_handler(rawaudio.buffer_handler)
 
     #Create the loop and add a few triggers
     GObject.threads_init()
@@ -636,13 +617,6 @@ def main():
     if len(set(analyzer.spectrum)) <= 1:
         logging.info("WARNING: Microphone seems broken, didn't even "
                      "record ambient noise")
-
-    #Write some files to disk for later analysis
-    if args.audio:
-        logging.info("Saving recorded audio as %s" % args.audio)
-        if not FileDumper().write_to_file(args.audio,
-                                          [rawaudio.get_raw_audio()]):
-            logging.error("Couldn't save recorded audio", file=sys.stderr)
 
     if args.spectrum:
         logging.info("Saving spectrum data for plotting as %s" %
