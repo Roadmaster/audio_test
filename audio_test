@@ -15,6 +15,7 @@ try:
     gi.require_version('Gst','1.0')
     from gi.repository import GObject
     from gi.repository import Gst
+    from gi.repository import GLib
     Gst.init(None)  # This has to be done very early so it can find elements
 except ImportError:
     print("Can't import module: %s. it may not be available for this"
@@ -580,11 +581,11 @@ def main():
     recorder.register_message_handler(gmh.bus_message_handler)
 
     #Create the loop and add a few triggers
-    GObject.threads_init()
-    loop = GObject.MainLoop()
-    GObject.timeout_add_seconds(0, player.start)
-    GObject.timeout_add_seconds(0, recorder.start)
-    GObject.timeout_add_seconds(args.test_duration, loop.quit)
+#    GObject.threads_init() #Not needed?
+    loop = GLib.MainLoop()
+    GLib.timeout_add_seconds(0, player.start)
+    GLib.timeout_add_seconds(0, recorder.start)
+    GLib.timeout_add_seconds(args.test_duration, loop.quit)
 
     # Tell the gmh which method to call when enough samples are collected
     gmh.set_quit_method(loop.quit)
