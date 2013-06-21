@@ -4,6 +4,20 @@ This mirrors the authoritative source location which is at:
 
 https://code.launchpad.net/~roadmr/+junk/audio_test
 
-Current problems:
+This script requires Python 3.0 with gi, gstreamer and pulseaudio.
+It should work out of the box on Ubuntu 13.04 and higher.
 
- * The gstreamer 1.0 messages API is TOTALLY broken from pygi.
+1- If you're running Ubuntu 12.04, add a PPA containing GStreamer 1.0:
+
+sudo apt-add-repository ppa:gstreamer-developers/ppa
+
+2- If on Ubuntu 12.04, install the following packages:
+ python3
+ python3-gi
+ gir1.2-gstreamer-1.0
+ libgstreamer1.0-0
+ gstreamer1.0-plugins-good
+ gstreamer1.0-pulseaudio
+
+3- run ./audio_test
+
